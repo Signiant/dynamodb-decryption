@@ -1,0 +1,129 @@
+{
+  "AWSTemplateFormatVersion" : "2010-09-09",
+  
+"Parameters": {
+    "StreamARN": {
+      "Type": "String",
+      "Description": "The ARN for the source table stream in which we're decrypting."
+    },
+    "ColumnsToDecrypt": {
+      "Type": "String",
+      "Description": "Comma delimited list of the columns in which to attempt decryption. All surrounding whitespace is stripped."
+    },
+    "KMSEncryptionARN": {
+      "Type": "String",
+      "Description": "The ARN of the KMS key to re-encrypt the data with"
+    },
+    "SourceRegion": {
+      "Type": "String",
+      "Description": "The region that contains the KMS key that the data is encrypted with"
+    }
+  },
+ "Resources": {
+    "ReplicatorRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "Path": "/replication/decrypt/",
+        "AssumeRolePolicyDocument" : {
+          "Version": "2012-10-17",
+          "Statement": [{
+            "Effect": "Allow",
+            "Principal": {"Service": ["lambda.amazonaws.com"]},
+            "Action": ["sts:AssumeRole"]
+          }]
+        },
+        "Policies": [
+          {
+            "PolicyName": "ReplicationReplicatorPolicy",
+            "PolicyDocument":  {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "Logging",
+                  "Action": [
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": "arn:aws:logs:*:*:*:*"
+                },
+                {
+                  "Sid": "InvokeSelf",
+                  "Action": [
+                    "lambda:InvokeFunction"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": "*"
+                },
+                {
+                  "Sid": "SourceStream",
+                  "Action": [
+                    "dynamodb:GetRecords",
+                    "dynamodb:GetShardIterator",
+                    "dynamodb:DescribeStream",
+                    "dynamodb:ListStreams"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": "arn:aws:dynamodb:*:*:table/*/stream/*"
+                },
+                {
+                  "Sid": "ReplicaTable",
+                  "Action": [
+                    "dynamodb:BatchWriteItem"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": { "Fn::Join": [ ":", [ "arn", "aws", "dynamodb", { "Ref": "AWS::Region" }, "*", "table/*"]]}
+                },
+                {
+                  "Sid": "ReplicationKmsAccess",
+                  "Action": [
+                    "kms:Encrypt",
+                    "kms:Decrypt"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": "arn:aws:kms:*:*:*/*"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "DecryptionFunction": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "FunctionName": "Replication-Decrypter",
+        "Description": "Decrypts replicated data with a foreign KMS key and re-encrypts it with the provided key.",
+        "Role": { "Fn::GetAtt": [ "ReplicatorRole", "Arn" ] },
+        "Runtime": "python2.7",
+        "Handler": "index.lambda_handler",
+        "MemorySize": 128,
+        "Timeout": 300,
+        "Code": {
+          "ZipFile": {
+            "Fn::Include": {
+              "type": "literal",
+              "location": "../lambda/lambda_function.py",
+              "context": {
+                "kmsEncrypt" : { "Ref": "KMSEncryptionARN" },
+                "columnsToDecrypt" : { "Ref": "ColumnsToDecrypt" },
+                "currentRegion" : { "Ref": "AWS::Region" },
+                "sourceRegion" : { "Ref": "SourceRegion" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "DecryptionMapping": {
+      "Type" : "AWS::Lambda::EventSourceMapping",
+      "Properties" : {
+        "BatchSize" : 1,
+        "EventSourceArn" : { "Ref": "StreamARN" },
+        "FunctionName" : { "Ref": "DecryptionFunction"},
+        "StartingPosition" : "TRIM_HORIZON"
+      }
+    }
+  }
+}

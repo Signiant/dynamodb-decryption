@@ -1,0 +1,23 @@
+{
+  "name": "dynamodb-replication-reencrypt",
+  "description": "An addon to Jonathan Seed's replication which will reencrypt data in-place after replication.",
+  "version": "0.1.0",
+  "author": "Matthew Corner <mcorner@signiant.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Signiant/dynamodb-replication"
+  },
+  "keywords": [
+    "dynamodb",
+    "lambda",
+    "replication"
+  ],
+  "scripts": {
+    "build": "grunt"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "cfn-include": "^0.6.3",
+    "grunt": "^1.0.1"
+  }
+}
